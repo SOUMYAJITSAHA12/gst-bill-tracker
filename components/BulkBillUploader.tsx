@@ -139,7 +139,7 @@ export default function BulkBillUploader() {
       const batch = invoiceNumbers.slice(i, i + batchSize);
       const { data } = await supabase
         .from("invoices")
-        .select("id, invoice_number, supplier_name, financial_year, invoice_date, pdf_path, external_link")
+        .select("id, invoice_number, supplier_name, financial_year, invoice_date, pdf_path, external_link, is_matched")
         .in("invoice_number", batch);
       if (data) allDbInvoices.push(...data);
     }
@@ -148,18 +148,26 @@ export default function BulkBillUploader() {
       allDbInvoices.map((inv) => [inv.invoice_number, inv])
     );
 
+    const seenInvoiceNumbers = new Set<string>();
+
     return extractedBills.map((bill) => {
       const dbMatch = bill.invoiceNumber
         ? invoiceMap.get(bill.invoiceNumber)
         : null;
 
-      let matchStatus: "matched" | "unmatched" | "already_attached";
+      let matchStatus: "matched" | "unmatched" | "already_attached" | "duplicate";
       if (!dbMatch) {
         matchStatus = "unmatched";
-      } else if (dbMatch.pdf_path || dbMatch.external_link) {
+      } else if (dbMatch.pdf_path || dbMatch.external_link || dbMatch.is_matched) {
         matchStatus = "already_attached";
+      } else if (bill.invoiceNumber && seenInvoiceNumbers.has(bill.invoiceNumber)) {
+        matchStatus = "duplicate";
       } else {
         matchStatus = "matched";
+      }
+
+      if (bill.invoiceNumber && matchStatus === "matched") {
+        seenInvoiceNumbers.add(bill.invoiceNumber);
       }
 
       return {
@@ -275,6 +283,7 @@ export default function BulkBillUploader() {
 
   const matchedCount = bills.filter((b) => b.matchStatus === "matched").length;
   const alreadyAttachedCount = bills.filter((b) => b.matchStatus === "already_attached").length;
+  const duplicateCount = bills.filter((b) => b.matchStatus === "duplicate").length;
   const unmatchedCount = bills.filter(
     (b) => b.matchStatus === "unmatched"
   ).length;
@@ -363,6 +372,11 @@ export default function BulkBillUploader() {
                 {alreadyAttachedCount} already attached
               </span>
             )}
+            {duplicateCount > 0 && (
+              <span className="px-3 py-1 rounded-full bg-red-100 text-red-800 font-medium">
+                {duplicateCount} duplicate{duplicateCount > 1 ? "s" : ""}
+              </span>
+            )}
             {unmatchedCount > 0 && (
               <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-800 font-medium">
                 {unmatchedCount - noInvoiceCount} not in database
@@ -421,6 +435,10 @@ export default function BulkBillUploader() {
                         ) : bill.matchStatus === "already_attached" ? (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
                             Already attached
+                          </span>
+                        ) : bill.matchStatus === "duplicate" ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                            Duplicate
                           </span>
                         ) : bill.invoiceNumber ? (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">

@@ -63,7 +63,7 @@ export interface ExtractedBill {
   invoiceNumber: string | null;
   pdfBlob: Blob;
   matchedInvoiceId?: string;
-  matchStatus: "matched" | "unmatched" | "pending" | "already_attached";
+  matchStatus: "matched" | "unmatched" | "pending" | "already_attached" | "duplicate";
 }
 
 export async function extractBillsFromZip(

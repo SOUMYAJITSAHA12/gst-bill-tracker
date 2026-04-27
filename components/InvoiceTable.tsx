@@ -19,6 +19,7 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
   const { isDemo } = useAuth();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [removingBills, setRemovingBills] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -82,6 +83,53 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
     onDeleteComplete?.();
   }
 
+  async function handleRemoveBills() {
+    if (selected.size === 0 || isDemo) return;
+
+    const withBills = invoices.filter(
+      (i) => selected.has(i.id) && (i.pdf_path || i.external_link)
+    );
+
+    if (withBills.length === 0) {
+      window.alert("No attached bills found in the selected invoices.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove attached bills from ${withBills.length} invoice${withBills.length > 1 ? "s" : ""}? The invoices will remain, only the bill attachments will be removed.`
+    );
+    if (!confirmed) return;
+
+    setRemovingBills(true);
+
+    const batchSize = 100;
+    const pdfPaths = withBills
+      .filter((i) => i.pdf_path)
+      .map((i) => i.pdf_path!);
+
+    for (let i = 0; i < pdfPaths.length; i += batchSize) {
+      await supabase.storage.from("bills").remove(pdfPaths.slice(i, i + batchSize));
+    }
+
+    const ids = withBills.map((i) => i.id);
+    for (let i = 0; i < ids.length; i += batchSize) {
+      await supabase
+        .from("invoices")
+        .update({
+          pdf_path: null,
+          external_link: null,
+          is_matched: false,
+          matched_by: null,
+          matched_at: null,
+        })
+        .in("id", ids.slice(i, i + batchSize));
+    }
+
+    setSelected(new Set());
+    setRemovingBills(false);
+    onDeleteComplete?.();
+  }
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
@@ -121,11 +169,18 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
               Clear selection
             </button>
             <button
+              onClick={handleRemoveBills}
+              disabled={removingBills || deleting}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+            >
+              {removingBills ? "Removing..." : "Remove Bills"}
+            </button>
+            <button
               onClick={handleBulkDelete}
-              disabled={deleting}
+              disabled={deleting || removingBills}
               className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
-              {deleting ? "Deleting..." : `Delete ${selected.size}`}
+              {deleting ? "Deleting..." : "Delete Invoices"}
             </button>
           </div>
         </div>
