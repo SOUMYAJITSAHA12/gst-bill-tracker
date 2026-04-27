@@ -33,21 +33,13 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
     safeCurrentPage * PAGE_SIZE
   );
 
-  const allSelected = paginatedInvoices.length > 0 && paginatedInvoices.every((i) => selected.has(i.id));
+  const allSelected = invoices.length > 0 && selected.size === invoices.length;
 
   function toggleAll() {
     if (allSelected) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        paginatedInvoices.forEach((i) => next.delete(i.id));
-        return next;
-      });
+      setSelected(new Set());
     } else {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        paginatedInvoices.forEach((i) => next.add(i.id));
-        return next;
-      });
+      setSelected(new Set(invoices.map((i) => i.id)));
     }
   }
 
@@ -74,12 +66,16 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
       .filter((i) => i.pdf_path)
       .map((i) => i.pdf_path!);
 
-    if (pdfPaths.length > 0) {
-      await supabase.storage.from("bills").remove(pdfPaths);
+    const batchSize = 100;
+
+    for (let i = 0; i < pdfPaths.length; i += batchSize) {
+      await supabase.storage.from("bills").remove(pdfPaths.slice(i, i + batchSize));
     }
 
     const ids = toDelete.map((i) => i.id);
-    await supabase.from("invoices").delete().in("id", ids);
+    for (let i = 0; i < ids.length; i += batchSize) {
+      await supabase.from("invoices").delete().in("id", ids.slice(i, i + batchSize));
+    }
 
     setSelected(new Set());
     setDeleting(false);

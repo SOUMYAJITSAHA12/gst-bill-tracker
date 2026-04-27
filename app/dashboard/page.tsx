@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchAllRows } from "@/lib/supabase";
 import { Invoice, DashboardStats } from "@/lib/types";
 import { DEMO_INVOICES, getDemoStats } from "@/lib/demo-data";
 import StatsCards from "@/components/StatsCards";
@@ -16,6 +16,7 @@ function invoiceMatchesMonth(inv: Invoice, month: string): boolean {
   const m = (d.getMonth() + 1).toString().padStart(2, "0");
   return m === month;
 }
+
 
 export default function DashboardPage() {
   const { user, loading: authLoading, isDemo } = useAuth();
@@ -62,60 +63,48 @@ export default function DashboardPage() {
     if (!user || isDemo) return;
     setLoading(true);
 
-    let query = supabase
-      .from("invoices")
-      .select("*")
-      .order("invoice_date", { ascending: false, nullsFirst: false });
-
-    if (financialYear) {
-      query = query.eq("financial_year", financialYear);
-    }
-    if (matchFilter === "matched") {
-      query = query.eq("is_matched", true);
-    } else if (matchFilter === "unmatched") {
-      query = query.eq("is_matched", false);
-    }
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(
-        `invoice_number.ilike.${term},supplier_name.ilike.${term},supplier_gstin.ilike.${term}`
-      );
-    }
-
-    const { data, error } = await query;
-
-    if (!error && data) {
-      let filtered = data as Invoice[];
-      if (month) {
-        filtered = filtered.filter((i) => invoiceMatchesMonth(i, month));
+    const all = await fetchAllRows<Invoice>(() => {
+      let q = supabase
+        .from("invoices")
+        .select("*")
+        .order("invoice_date", { ascending: false, nullsFirst: false });
+      if (financialYear) q = q.eq("financial_year", financialYear);
+      if (matchFilter === "matched") q = q.eq("is_matched", true);
+      else if (matchFilter === "unmatched") q = q.eq("is_matched", false);
+      if (search.trim()) {
+        const term = `%${search.trim()}%`;
+        q = q.or(
+          `invoice_number.ilike.${term},supplier_name.ilike.${term},supplier_gstin.ilike.${term}`
+        );
       }
-      setInvoices(filtered);
-    }
+      return q;
+    });
 
+    let filtered = all;
+    if (month) filtered = filtered.filter((i) => invoiceMatchesMonth(i, month));
+    setInvoices(filtered);
     setLoading(false);
   }, [user, isDemo, financialYear, month, matchFilter, search]);
 
   const fetchStats = useCallback(async () => {
     if (!user || isDemo) return;
 
-    let query = supabase.from("invoices").select("*");
-    if (financialYear) {
-      query = query.eq("financial_year", financialYear);
-    }
+    const allData = await fetchAllRows<Invoice>(() => {
+      let q = supabase.from("invoices").select("*");
+      if (financialYear) q = q.eq("financial_year", financialYear);
+      return q;
+    });
 
-    const { data } = await query;
-    if (data) {
-      let all = data as Invoice[];
-      if (month) all = all.filter((i) => invoiceMatchesMonth(i, month));
-      const matched = all.filter((i) => i.is_matched);
-      setStats({
-        totalInvoices: all.length,
-        matchedCount: matched.length,
-        unmatchedCount: all.length - matched.length,
-        totalItc: all.reduce((sum, i) => sum + i.igst + i.cgst + i.sgst, 0),
-        totalTaxableValue: all.reduce((sum, i) => sum + i.taxable_value, 0),
-      });
-    }
+    let all = allData;
+    if (month) all = all.filter((i) => invoiceMatchesMonth(i, month));
+    const matched = all.filter((i) => i.is_matched);
+    setStats({
+      totalInvoices: all.length,
+      matchedCount: matched.length,
+      unmatchedCount: all.length - matched.length,
+      totalItc: all.reduce((sum, i) => sum + i.igst + i.cgst + i.sgst, 0),
+      totalTaxableValue: all.reduce((sum, i) => sum + i.taxable_value, 0),
+    });
   }, [user, isDemo, financialYear, month]);
 
   useEffect(() => {

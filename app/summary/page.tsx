@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchAllRows } from "@/lib/supabase";
 import { Invoice } from "@/lib/types";
 import { DEMO_INVOICES } from "@/lib/demo-data";
 import { formatCurrency, formatDate, generateFinancialYears } from "@/lib/utils";
@@ -42,9 +42,10 @@ export default function SummaryPage() {
     if (isDemo) {
       all = DEMO_INVOICES;
     } else {
-      const { data } = await supabase.from("invoices").select("*");
-      if (!data) return;
-      all = data as Invoice[];
+      all = await fetchAllRows<Invoice>(() =>
+        supabase.from("invoices").select("*")
+      );
+      if (all.length === 0) return;
     }
     const byFY: Record<string, Invoice[]> = {};
     for (const inv of all) {
@@ -81,12 +82,14 @@ export default function SummaryPage() {
       setInvoices(DEMO_INVOICES.filter((i) => i.financial_year === fy));
       return;
     }
-    const { data } = await supabase
-      .from("invoices")
-      .select("*")
-      .eq("financial_year", fy)
-      .order("invoice_date", { ascending: false });
-    if (data) setInvoices(data as Invoice[]);
+    const data = await fetchAllRows<Invoice>(() =>
+      supabase
+        .from("invoices")
+        .select("*")
+        .eq("financial_year", fy)
+        .order("invoice_date", { ascending: false })
+    );
+    setInvoices(data);
   }
 
   async function exportToCSV(fy: string) {
@@ -96,12 +99,13 @@ export default function SummaryPage() {
     if (isDemo) {
       data = DEMO_INVOICES.filter((i) => i.financial_year === fy);
     } else {
-      const { data: dbData } = await supabase
-        .from("invoices")
-        .select("*")
-        .eq("financial_year", fy)
-        .order("invoice_date", { ascending: true });
-      data = (dbData as Invoice[]) || [];
+      data = await fetchAllRows<Invoice>(() =>
+        supabase
+          .from("invoices")
+          .select("*")
+          .eq("financial_year", fy)
+          .order("invoice_date", { ascending: true })
+      );
     }
 
     if (data.length === 0) {
