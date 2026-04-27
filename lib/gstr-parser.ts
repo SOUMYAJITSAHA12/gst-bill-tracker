@@ -272,10 +272,6 @@ export function parseGstr2bExcel(fileBuffer: ArrayBuffer): {
 
     const gstin = col.gstin >= 0 ? String(cells[col.gstin] ?? "").trim() : "";
 
-    // Skip invoices with value less than 2000
-    const invValue = col.invValue >= 0 ? toNumber(cells[col.invValue]) : 0;
-    if (invValue < 2000) continue;
-
     invoices.push({
       supplier_gstin: gstin,
       supplier_name: col.name >= 0 ? String(cells[col.name] ?? "").trim() : "",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Invoice } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -13,18 +13,41 @@ interface InvoiceTableProps {
   onDeleteComplete?: () => void;
 }
 
+const PAGE_SIZE = 50;
+
 export default function InvoiceTable({ invoices, loading, onDeleteComplete }: InvoiceTableProps) {
   const { isDemo } = useAuth();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const allSelected = invoices.length > 0 && selected.size === invoices.length;
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelected(new Set());
+  }, [invoices]);
+
+  const totalPages = Math.max(1, Math.ceil(invoices.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedInvoices = invoices.slice(
+    (safeCurrentPage - 1) * PAGE_SIZE,
+    safeCurrentPage * PAGE_SIZE
+  );
+
+  const allSelected = paginatedInvoices.length > 0 && paginatedInvoices.every((i) => selected.has(i.id));
 
   function toggleAll() {
     if (allSelected) {
-      setSelected(new Set());
+      setSelected((prev) => {
+        const next = new Set(prev);
+        paginatedInvoices.forEach((i) => next.delete(i.id));
+        return next;
+      });
     } else {
-      setSelected(new Set(invoices.map((i) => i.id)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        paginatedInvoices.forEach((i) => next.add(i.id));
+        return next;
+      });
     }
   }
 
@@ -136,7 +159,7 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {invoices.map((inv) => {
+              {paginatedInvoices.map((inv) => {
                 const gstTotal = inv.igst + inv.cgst + inv.sgst;
                 const isSelected = selected.has(inv.id);
                 return (
@@ -206,7 +229,7 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
 
         {/* Mobile cards */}
         <div className="md:hidden divide-y divide-gray-100">
-          {invoices.map((inv) => {
+          {paginatedInvoices.map((inv) => {
             const gstTotal = inv.igst + inv.cgst + inv.sgst;
             const isSelected = selected.has(inv.id);
             return (
@@ -256,6 +279,79 @@ export default function InvoiceTable({ invoices, loading, onDeleteComplete }: In
           })}
         </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+          <p className="text-sm text-gray-500">
+            Showing {(safeCurrentPage - 1) * PAGE_SIZE + 1}–
+            {Math.min(safeCurrentPage * PAGE_SIZE, invoices.length)} of{" "}
+            {invoices.length} invoices
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(1)}
+              disabled={safeCurrentPage === 1}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={safeCurrentPage === 1}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Prev
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => {
+                if (totalPages <= 7) return true;
+                if (p === 1 || p === totalPages) return true;
+                return Math.abs(p - safeCurrentPage) <= 2;
+              })
+              .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((item, idx) =>
+                item === "..." ? (
+                  <span key={`ellipsis-${idx}`} className="px-1.5 text-xs text-gray-400">
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    onClick={() => setCurrentPage(item as number)}
+                    className={`px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                      item === safeCurrentPage
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
+
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safeCurrentPage === totalPages}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+            <button
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={safeCurrentPage === totalPages}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

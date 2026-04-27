@@ -82,7 +82,7 @@ export default function DashboardPage() {
       );
     }
 
-    const { data, error } = await query.limit(500);
+    const { data, error } = await query;
 
     if (!error && data) {
       let filtered = data as Invoice[];
