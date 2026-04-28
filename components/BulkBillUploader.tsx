@@ -70,8 +70,8 @@ export default function BulkBillUploader() {
             setProgress(
               `Reading PDF ${processedFiles + 1}/${totalFiles}: ${file.name}...`
             );
-            const bill = await extractBillFromPdf(file);
-            allBills.push(bill);
+            const pdfBills = await extractBillFromPdf(file);
+            allBills.push(...pdfBills);
           }
         } catch {
           failedFiles++;

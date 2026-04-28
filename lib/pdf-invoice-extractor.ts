@@ -36,10 +36,14 @@ function isDateLike(val: string): boolean {
 }
 
 const INVOICE_PATTERNS: RegExp[] = [
-  // Flipkart GTA: "Tax Invoice Number : NBAA327001141936" (must be before generic)
+  // Flipkart GTA: "Tax Invoice Number : NBAA327001141936"
   /Tax\s*Invoice\s*Number\s*:?\s*([A-Z0-9][A-Z0-9\-\/]+)/i,
   // Flipkart GTA reversed column layout: ": NBAA327001141936  Tax Invoice Number"
   /:\s*([A-Z0-9][A-Z0-9\-\/]+)\s+Tax\s*Invoice\s*Number/i,
+  // Flipkart Bill of Supply: "Bill of Supply Number : NBAA327000887477"
+  /Bill\s*of\s*Supply\s*Number\s*:?\s*([A-Z0-9][A-Z0-9\-\/]+)/i,
+  // Flipkart Bill of Supply reversed: ": NBAA327000887477  Bill of Supply Number"
+  /:\s*([A-Z0-9][A-Z0-9\-\/]+)\s+Bill\s*of\s*Supply\s*Number/i,
   // Flipkart product invoices: "Invoice Number # LIAAE1L270000652"
   /Invoice\s*Number\s*#\s*([A-Z0-9][A-Z0-9\-\/]+)/i,
   // Samsung / Amazon: "Invoice Number: 20E5I6001001" or "Invoice Number : CCX1-14391"
@@ -49,13 +53,25 @@ const INVOICE_PATTERNS: RegExp[] = [
 ];
 
 export function extractInvoiceNumber(text: string): string | null {
+  const all = extractAllInvoiceNumbers(text);
+  return all.length > 0 ? all[0] : null;
+}
+
+export function extractAllInvoiceNumbers(text: string): string[] {
+  const found = new Set<string>();
+
   for (const pattern of INVOICE_PATTERNS) {
-    const match = text.match(pattern);
-    if (match?.[1] && !isDateLike(match[1])) {
-      return match[1].trim();
+    const globalPattern = new RegExp(pattern.source, "gi");
+    let match;
+    while ((match = globalPattern.exec(text)) !== null) {
+      const val = match[1]?.trim();
+      if (val && !isDateLike(val)) {
+        found.add(val);
+      }
     }
   }
-  return null;
+
+  return Array.from(found);
 }
 
 export interface ExtractedBill {
@@ -78,18 +94,44 @@ export async function extractBillsFromZip(
   );
 
   for (const [name, entry] of pdfEntries) {
-    const data = await entry.async("arraybuffer");
-    const pdfBlob = new Blob([data], { type: "application/pdf" });
-    const copyForParsing = data.slice(0);
-    const text = await extractTextFromPdf(copyForParsing);
-    const invoiceNumber = extractInvoiceNumber(text);
+    try {
+      const data = await entry.async("arraybuffer");
+      const pdfBlob = new Blob([data], { type: "application/pdf" });
+      const copyForParsing = data.slice(0);
+      const text = await extractTextFromPdf(copyForParsing);
+      const invoiceNumbers = extractAllInvoiceNumbers(text);
 
-    bills.push({
-      fileName: name,
-      invoiceNumber,
-      pdfBlob,
-      matchStatus: "pending",
-    });
+      if (invoiceNumbers.length === 0) {
+        bills.push({
+          fileName: name,
+          invoiceNumber: null,
+          pdfBlob,
+          matchStatus: "pending",
+        });
+      } else {
+        for (const invNum of invoiceNumbers) {
+          bills.push({
+            fileName: name,
+            invoiceNumber: invNum,
+            pdfBlob,
+            matchStatus: "pending",
+          });
+        }
+      }
+    } catch {
+      // Skip PDFs that fail to parse but still include them with no invoice number
+      try {
+        const data = await entry.async("arraybuffer");
+        bills.push({
+          fileName: name,
+          invoiceNumber: null,
+          pdfBlob: new Blob([data], { type: "application/pdf" }),
+          matchStatus: "pending",
+        });
+      } catch {
+        // Skip entirely if even reading fails
+      }
+    }
   }
 
   return bills;
@@ -97,16 +139,26 @@ export async function extractBillsFromZip(
 
 export async function extractBillFromPdf(
   file: File
-): Promise<ExtractedBill> {
+): Promise<ExtractedBill[]> {
   const data = await file.arrayBuffer();
   const copyForParsing = data.slice(0);
   const text = await extractTextFromPdf(copyForParsing);
-  const invoiceNumber = extractInvoiceNumber(text);
+  const invoiceNumbers = extractAllInvoiceNumbers(text);
+  const pdfBlob = new Blob([data], { type: "application/pdf" });
 
-  return {
+  if (invoiceNumbers.length === 0) {
+    return [{
+      fileName: file.name,
+      invoiceNumber: null,
+      pdfBlob,
+      matchStatus: "pending",
+    }];
+  }
+
+  return invoiceNumbers.map((invNum) => ({
     fileName: file.name,
-    invoiceNumber,
-    pdfBlob: new Blob([data], { type: "application/pdf" }),
+    invoiceNumber: invNum,
+    pdfBlob,
     matchStatus: "pending",
-  };
+  }));
 }
