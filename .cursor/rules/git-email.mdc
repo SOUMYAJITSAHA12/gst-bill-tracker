@@ -1,0 +1,21 @@
+---
+description: Use correct Git email for all commits in this project
+alwaysApply: true
+---
+
+# Git Commit Email
+
+Always use this identity for git commits in this repository:
+
+- **Name:** Soumyajit Saha
+- **Email:** soumyajitsaha24@gmail.com
+
+The company laptop has `soumyajit.saha@pwc.com` as the default git email, which causes Vercel deployment to be blocked because it doesn't match the GitHub account.
+
+Before every `git commit`, rewrite the author with:
+
+```
+git commit --author="Soumyajit Saha <soumyajitsaha24@gmail.com>" -m "message"
+```
+
+If a commit was accidentally made with the wrong email, fix it with `git filter-branch` and force push.
